@@ -26,9 +26,7 @@ export default function App() {
 function AppContent() {
   const { user, isSignedIn } = useUser();
   const { organization } = useOrganization();
-  const { isLoaded: orgListLoaded, userMemberships, setActive } = useOrganizationList({
-    memberships: true
-  });
+  const { isLoaded: orgListLoaded, userMemberships, setActive } = useOrganizationList({ memberships: true });
 
   const [users, setUsers] = useState([]);
   const [goals, setGoals] = useState([]);
@@ -60,8 +58,36 @@ function AppContent() {
     [users]
   );
 
+  const ensureUser = async () => {
+    if (!isSignedIn || !user) return;
+
+    const payload = {
+      clerk_id: user.id,
+      name: user.fullName || user.firstName || user.username || 'Utente',
+      city: user.primaryEmailAddress?.emailAddress || 'Non specificata',
+      points: 0
+    };
+
+    const { error } = await supabase
+      .from('users')
+      .upsert(payload, { onConflict: 'clerk_id' });
+
+    if (error) throw error;
+  };
+
+  const attachOrgToUser = async () => {
+    if (!currentUser || !currentOrgId) return;
+
+    const { error } = await supabase
+      .from('users')
+      .update({ organization_id: currentOrgId })
+      .eq('id', currentUser.id);
+
+    if (error) throw error;
+  };
+
   const loadData = async () => {
-    if (!isSignedIn || !currentClerkId || !currentOrgId) return;
+    if (!isSignedIn || !currentOrgId) return;
     try {
       setLoading(true);
 
@@ -90,25 +116,6 @@ function AppContent() {
     }
   };
 
-  const ensureUser = async () => {
-    if (!isSignedIn || !user || !currentOrgId) return;
-
-    const payload = {
-      clerk_id: user.id,
-      organization_id: currentOrgId,
-      current_organization_id: currentOrgId,
-      name: user.fullName || user.firstName || user.username || 'Utente',
-      city: user.primaryEmailAddress?.emailAddress || 'Non specificata',
-      points: 0
-    };
-
-    const { error } = await supabase
-      .from('users')
-      .upsert(payload, { onConflict: 'clerk_id' });
-
-    if (error) throw error;
-  };
-
   const recomputePoints = async (userId, goalsList = goals) => {
     const userGoals = goalsList.filter((goal) => goal.user_id === userId);
     const total = userGoals.reduce((sum, goal) => {
@@ -125,15 +132,26 @@ function AppContent() {
 
   useEffect(() => {
     (async () => {
-      if (!isSignedIn || !currentOrgId) return;
       try {
+        if (!isSignedIn) return;
         await ensureUser();
-        await loadData();
       } catch (err) {
-        setError(err.message || 'Errore inizializzazione');
+        setError(err.message || 'Errore inizializzazione utente');
       }
     })();
-  }, [isSignedIn, currentClerkId, currentOrgId]);
+  }, [isSignedIn, currentClerkId]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!isSignedIn || !currentOrgId) return;
+        await attachOrgToUser();
+        await loadData();
+      } catch (err) {
+        setError(err.message || 'Errore caricamento lega');
+      }
+    })();
+  }, [isSignedIn, currentOrgId, currentClerkId]);
 
   const createUser = async (payload) => {
     if (!currentUser || !currentOrgId) return;
@@ -144,7 +162,7 @@ function AppContent() {
         .update({
           name: payload.name || currentUser.name,
           city: payload.city || currentUser.city,
-          current_organization_id: currentOrgId
+          organization_id: currentOrgId
         })
         .eq('id', currentUser.id);
 
@@ -207,7 +225,6 @@ function AppContent() {
   };
 
   const switchLeague = async (orgId) => {
-    if (!setActive) return;
     try {
       await setActive({ organization: orgId });
     } catch (err) {
@@ -261,19 +278,14 @@ function AppContent() {
                 + Crea lega
               </button>
 
-              <OrganizationSwitcher
-                afterCreateOrganizationUrl="/"
-                afterSelectOrganizationUrl="/"
-              />
+              <OrganizationSwitcher afterCreateOrganizationUrl="/" afterSelectOrganizationUrl="/" />
 
               <div className="nav-icon">
                 <Users size={18} />
               </div>
-
               <div className="nav-icon">
                 <Settings size={18} />
               </div>
-
               <div className="nav-icon">
                 <Trophy size={18} />
               </div>
@@ -301,81 +313,90 @@ function AppContent() {
         </SignedOut>
 
         <SignedIn>
-          <section className="league-overview">
-            <div className="league-card">
-              <span className="eyebrow">Lega attiva</span>
-              <h2>{currentOrgName}</h2>
-              <p>
-                {orgListLoaded
-                  ? `${userMemberships?.data?.length || 0} leghe disponibili`
-                  : 'Caricamento leghe...'}
-              </p>
-            </div>
-
-            <div className="league-card">
-              <span className="eyebrow">Stato</span>
-              <h2>{currentOrgId ? 'Pronto' : 'Nessuna lega selezionata'}</h2>
-              <p>Usa il selettore in navbar per cambiare lega o crearne una nuova.</p>
-            </div>
-          </section>
-
-          {showCreateLeague ? (
-            <section className="panel league-create-panel">
-              <div className="panel-header">
-                <div>
-                  <span className="eyebrow">Nuova lega</span>
-                  <h2>Crea una lega privata</h2>
-                </div>
-                <button className="ghost-btn" onClick={() => setShowCreateLeague(false)}>
-                  Chiudi
-                </button>
-              </div>
-              <CreateOrganization routing="hash" />
+          {!currentOrgId ? (
+            <section className="panel">
+              <h2>Nessuna lega attiva</h2>
+              <p>Crea una lega o selezionala dalla navbar per iniziare.</p>
             </section>
-          ) : null}
-
-          {error ? <div className="error-banner">{error}</div> : null}
-
-          <section className="stats-grid">
-            <StatCard label="Utenti" value={stats.totalUsers} hint="Partecipanti attivi" />
-            <StatCard label="Obiettivi" value={stats.totalGoals} hint="Missioni registrate" />
-            <StatCard label="Punti" value={stats.totalPoints} hint="Punti assegnati" />
-            <StatCard label="Completati" value={stats.completedGoals} hint="Goal chiusi" />
-          </section>
-
-          {loading ? (
-            <div className="panel">Caricamento dati...</div>
           ) : (
-            <main className="dashboard-grid">
-              <div className="main-column">
-                <UserForm
-                  users={users}
-                  onUserCreated={createUser}
-                    onGoalCreated={createGoal}
-                  />
-                <GoalList goals={enrichedGoals} onUpdate={updateProgress} />
-              </div>
-              <aside>
-                <Leaderboard users={leaderboard} />
-                <div className="panel" style={{ marginTop: '18px' }}>
-                  <h3>Leghe disponibili</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
-                    {userMemberships?.data?.map((membership) => {
-                      const org = membership.organization;
-                      return (
-                        <button
-                          key={org.id}
-                          className="ghost-btn"
-                          onClick={() => switchLeague(org.id)}
-                        >
-                          {org.name}
-                        </button>
-                      );
-                    })}
-                  </div>
+            <>
+              <section className="league-overview">
+                <div className="league-card">
+                  <span className="eyebrow">Lega attiva</span>
+                  <h2>{currentOrgName}</h2>
+                  <p>
+                    {orgListLoaded
+                      ? `${userMemberships?.data?.length || 0} leghe disponibili`
+                      : 'Caricamento leghe...'}
+                  </p>
                 </div>
-              </aside>
-            </main>
+
+                <div className="league-card">
+                  <span className="eyebrow">Stato</span>
+                  <h2>Pronto</h2>
+                  <p>Usa il selettore in navbar per cambiare lega o crearne una nuova.</p>
+                </div>
+              </section>
+
+              {showCreateLeague ? (
+                <section className="panel league-create-panel">
+                  <div className="panel-header">
+                    <div>
+                      <span className="eyebrow">Nuova lega</span>
+                      <h2>Crea una lega privata</h2>
+                    </div>
+                    <button className="ghost-btn" onClick={() => setShowCreateLeague(false)}>
+                      Chiudi
+                    </button>
+                  </div>
+                  <CreateOrganization routing="hash" />
+                </section>
+              ) : null}
+
+              {error ? <div className="error-banner">{error}</div> : null}
+
+              <section className="stats-grid">
+                <StatCard label="Utenti" value={stats.totalUsers} hint="Partecipanti attivi" />
+                <StatCard label="Obiettivi" value={stats.totalGoals} hint="Missioni registrate" />
+                <StatCard label="Punti" value={stats.totalPoints} hint="Punti assegnati" />
+                <StatCard label="Completati" value={stats.completedGoals} hint="Goal chiusi" />
+              </section>
+
+              {loading ? (
+                <div className="panel">Caricamento dati...</div>
+              ) : (
+                <main className="dashboard-grid">
+                  <div className="main-column">
+                    <UserForm
+                      users={users}
+                      onUserCreated={createUser}
+                      onGoalCreated={createGoal}
+                    />
+                    <GoalList goals={enrichedGoals} onUpdate={updateProgress} />
+                  </div>
+                  <aside>
+                    <Leaderboard users={leaderboard} />
+                    <div className="panel" style={{ marginTop: '18px' }}>
+                      <h3>Leghe disponibili</h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
+                        {userMemberships?.data?.map((membership) => {
+                          const org = membership.organization;
+                          return (
+                            <button
+                              key={org.id}
+                              className="ghost-btn"
+                              onClick={() => switchLeague(org.id)}
+                            >
+                              {org.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </aside>
+                </main>
+              )}
+            </>
           )}
         </SignedIn>
       </ClerkLoaded>
