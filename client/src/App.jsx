@@ -5,6 +5,30 @@ import StatCard from './components/StatCard';
 import Leaderboard from './components/Leaderboard';
 import GoalList from './components/GoalList';
 import UserForm from './components/UserForm';
+import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
+
+function LoginSection() {
+  return (
+    <>
+      <SignedOut>
+        <section className="panel auth-panel">
+          <span className="eyebrow">Accesso richiesto</span>
+          <h2>Entra con Google per usare Fantabon</h2>
+          <p>Accedi per creare obiettivi, accumulare punti e vedere la classifica.</p>
+          <SignInButton mode="modal">
+            <button className="primary-btn">Continua con Google</button>
+          </SignInButton>
+        </section>
+      </SignedOut>
+
+      <SignedIn>
+        <div className="userbar">
+          <UserButton afterSignOutUrl="/" />
+        </div>
+      </SignedIn>
+    </>
+  );
+}
 
 export default function App() {
   const [stats, setStats] = useState({ totalUsers: 0, totalGoals: 0, totalPoints: 0, completedGoals: 0 });

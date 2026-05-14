@@ -55,3 +55,14 @@ input[type='range'] { width: 100%; accent-color: var(--primary-dark); }
 .leader-score { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; }
 .error-banner { margin-bottom: 18px; padding: 14px 18px; border-radius: 18px; background: #ffe2df; color: #7a1e12; border: 1px solid #f2bbb4; }
 @media (max-width: 1024px) { .stats-grid, .forms-grid, .dashboard-grid { grid-template-columns: 1fr; } .hero { flex-direction: column; } }
+.auth-panel {
+  max-width: 560px;
+  margin: 24px auto;
+  text-align: center;
+}
+
+.userbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
