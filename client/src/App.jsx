@@ -332,7 +332,7 @@ function AppContent() {
               ) : (
                 <main className="dashboard-grid">
                   <div className="main-column">
-                    <UserForm users={users} onUserCreated={createUser} onGoalCreated={createGoal} />
+                    <UserForm users={users} onUserCreated={createUser} onGoalCreated={createGoal} disabled={!currentOrgId}/>
                     <GoalList goals={enrichedGoals} onUpdate={updateProgress} />
                   </div>
 
