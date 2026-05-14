@@ -37,6 +37,7 @@ function AppContent() {
 
   const currentOrgId = organization?.id ?? null;
   const currentOrgName = organization?.name ?? 'Nessuna lega attiva';
+
   const currentUser = useMemo(
     () => users.find((u) => u.clerk_id === user?.id) || null,
     [users, user?.id]
@@ -57,8 +58,39 @@ function AppContent() {
     [users]
   );
 
+  const ensureUser = async () => {
+    if (!isSignedIn || !user) return null;
+
+    const payload = {
+      clerk_id: user.id,
+      name: user.fullName || user.firstName || user.username || 'Utente',
+      city: user.primaryEmailAddress?.emailAddress || 'Non specificata',
+      points: 0
+    };
+
+    const { data, error: upsertError } = await supabase
+      .from('users')
+      .upsert(payload, { onConflict: 'clerk_id' })
+      .select();
+
+    if (upsertError) throw upsertError;
+    return data?.[0] ?? null;
+  };
+
+  const attachOrgToUser = async (orgId) => {
+    if (!currentUser || !orgId) return;
+
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ organization_id: orgId })
+      .eq('id', currentUser.id);
+
+    if (updateError) throw updateError;
+  };
+
   const loadData = async (orgId) => {
     if (!orgId) return;
+
     setLoading(true);
     setError('');
 
@@ -84,109 +116,107 @@ function AppContent() {
     setLoading(false);
   };
 
-  const ensureUser = async () => {
-    if (!isSignedIn || !user) return;
-
-    const payload = {
-      clerk_id: user.id,
-      name: user.fullName || user.firstName || user.username || 'Utente',
-      city: user.primaryEmailAddress?.emailAddress || 'Non specificata',
-      points: 0
-    };
-
-    const { error: upsertError } = await supabase
-      .from('users')
-      .upsert(payload, { onConflict: 'clerk_id' });
-
-    if (upsertError) throw upsertError;
-  };
-
-  const attachOrgToUser = async (orgId) => {
-    if (!currentUser || !orgId) return;
-
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ organization_id: orgId })
-      .eq('id', currentUser.id);
-
-    if (updateError) throw updateError;
-  };
-
   const createUser = async (payload) => {
-    if (!currentUser || !currentOrgId) return;
-
-    const { error } = await supabase
-      .from('users')
-      .update({
-        name: payload.name || currentUser.name,
-        city: payload.city || currentUser.city,
-        organization_id: currentOrgId
-      })
-      .eq('id', currentUser.id);
-
-    if (error) {
-      setError(error.message);
+    if (!currentOrgId) {
+      setError('Seleziona prima una lega attiva');
       return;
     }
 
-    await loadData(currentOrgId);
+    try {
+      setError('');
+
+      const baseUser = currentUser ?? (await ensureUser());
+      if (!baseUser) {
+        setError('Profilo non creato');
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          name: payload.name || baseUser.name,
+          city: payload.city || baseUser.city,
+          organization_id: currentOrgId
+        })
+        .eq('id', baseUser.id);
+
+      if (updateError) throw updateError;
+
+      await loadData(currentOrgId);
+    } catch (err) {
+      setError(err.message || 'Errore creazione profilo');
+    }
   };
 
   const createGoal = async (payload) => {
-    if (!currentUser || !currentOrgId) return;
-
-    const { error } = await supabase.from('goals').insert({
-      user_id: currentUser.id,
-      organization_id: currentOrgId,
-      title: payload.title,
-      category: payload.category || 'Altro',
-      points: Number(payload.points),
-      progress: 0,
-      target: Number(payload.target),
-      completed: false
-    });
-
-    if (error) {
-      setError(error.message);
+    if (!currentOrgId) {
+      setError('Seleziona prima una lega attiva');
       return;
     }
 
-    await loadData(currentOrgId);
+    try {
+      setError('');
+
+      const baseUser = currentUser ?? (await ensureUser());
+      if (!baseUser) {
+        setError('Prima crea un profilo');
+        return;
+      }
+
+      const { error: insertError } = await supabase.from('goals').insert({
+        user_id: baseUser.id,
+        organization_id: currentOrgId,
+        title: payload.title,
+        category: payload.category || 'Altro',
+        points: Number(payload.points),
+        progress: 0,
+        target: Number(payload.target),
+        completed: false
+      });
+
+      if (insertError) throw insertError;
+
+      await loadData(currentOrgId);
+    } catch (err) {
+      setError(err.message || 'Errore creazione obiettivo');
+    }
   };
 
   const updateProgress = async (goalId, progress) => {
     const goal = goals.find((g) => g.id === goalId);
     if (!goal) return;
 
-    const nextProgress = Math.min(progress, goal.target);
+    try {
+      const nextProgress = Math.min(Number(progress), goal.target);
 
-    const { error } = await supabase
-      .from('goals')
-      .update({
-        progress: nextProgress,
-        completed: nextProgress >= goal.target
-      })
-      .eq('id', goalId);
+      const { error: updateError } = await supabase
+        .from('goals')
+        .update({
+          progress: nextProgress,
+          completed: nextProgress >= goal.target
+        })
+        .eq('id', goalId);
 
-    if (error) {
-      setError(error.message);
-      return;
+      if (updateError) throw updateError;
+
+      await loadData(currentOrgId);
+    } catch (err) {
+      setError(err.message || 'Errore aggiornamento progresso');
     }
-
-    await loadData(currentOrgId);
   };
 
   const switchLeague = async (orgId) => {
-    const { error } = await setActive({ organization: orgId });
-    if (error) setError(error.message);
+    const { error: activeError } = await setActive({ organization: orgId });
+    if (activeError) setError(activeError.message);
   };
 
   useEffect(() => {
     (async () => {
       try {
+        if (!isSignedIn || !user) return;
         await ensureUser();
       } catch (err) {
-        setError(err.message || 'Errore inizializzazione utente');
+        setError(err.message || 'Errore inizializzazione profilo');
       }
     })();
   }, [isSignedIn, user?.id]);
@@ -201,7 +231,7 @@ function AppContent() {
         setError(err.message || 'Errore caricamento dati');
       }
     })();
-  }, [isSignedIn, currentOrgId]);
+  }, [isSignedIn, currentOrgId, currentUser?.id]);
 
   const enrichedGoals = goals.map((goal) => ({
     ...goal,
@@ -247,15 +277,9 @@ function AppContent() {
 
               <OrganizationSwitcher afterSelectOrganizationUrl="/" afterCreateOrganizationUrl="/" />
 
-              <div className="nav-icon">
-                <Users size={18} />
-              </div>
-              <div className="nav-icon">
-                <Settings size={18} />
-              </div>
-              <div className="nav-icon">
-                <Trophy size={18} />
-              </div>
+              <div className="nav-icon"><Users size={18} /></div>
+              <div className="nav-icon"><Settings size={18} /></div>
+              <div className="nav-icon"><Trophy size={18} /></div>
 
               <UserButton afterSignOutUrl="/" />
             </SignedIn>
@@ -332,7 +356,12 @@ function AppContent() {
               ) : (
                 <main className="dashboard-grid">
                   <div className="main-column">
-                    <UserForm users={users} onUserCreated={createUser} onGoalCreated={createGoal} disabled={!currentOrgId}/>
+                    <UserForm
+                      users={users}
+                      onUserCreated={createUser}
+                      onGoalCreated={createGoal}
+                      disabled={!currentOrgId}
+                    />
                     <GoalList goals={enrichedGoals} onUpdate={updateProgress} />
                   </div>
 
