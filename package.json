@@ -1,0 +1,9 @@
+{
+  "name": "fantabon",
+  "private": true,
+  "workspaces": ["client"],
+  "scripts": {
+    "dev": "npm run dev --prefix client",
+    "build": "npm run build --prefix client"
+  }
+}
