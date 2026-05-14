@@ -66,3 +66,55 @@ input[type='range'] { width: 100%; accent-color: var(--primary-dark); }
   justify-content: flex-end;
   margin-bottom: 16px;
 }
+
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 18px 0 24px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: var(--shadow);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.navbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.navbar-title {
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.navbar-subtitle {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.nav-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.org-switcher-wrap {
+  display: flex;
+  align-items: center;
+}
