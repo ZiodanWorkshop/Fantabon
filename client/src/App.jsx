@@ -26,7 +26,9 @@ export default function App() {
 function AppContent() {
   const { user, isSignedIn } = useUser();
   const { organization } = useOrganization();
-  const { isLoaded: orgListLoaded, userMemberships } = useOrganizationList({ memberships: true });
+  const { isLoaded: orgListLoaded, userMemberships, setActive } = useOrganizationList({
+    memberships: true
+  });
 
   const [users, setUsers] = useState([]);
   const [goals, setGoals] = useState([]);
@@ -94,26 +96,17 @@ function AppContent() {
     const payload = {
       clerk_id: user.id,
       organization_id: currentOrgId,
+      current_organization_id: currentOrgId,
       name: user.fullName || user.firstName || user.username || 'Utente',
       city: user.primaryEmailAddress?.emailAddress || 'Non specificata',
       points: 0
     };
 
-    const existing = await supabase
+    const { error } = await supabase
       .from('users')
-      .select('*')
-      .eq('clerk_id', user.id)
-      .eq('organization_id', currentOrgId)
-      .maybeSingle();
+      .upsert(payload, { onConflict: 'clerk_id' });
 
-    if (existing.error && existing.error.code !== 'PGRST116') {
-      throw existing.error;
-    }
-
-    if (!existing.data) {
-      const inserted = await supabase.from('users').insert(payload).select().single();
-      if (inserted.error) throw inserted.error;
-    }
+    if (error) throw error;
   };
 
   const recomputePoints = async (userId, goalsList = goals) => {
@@ -150,7 +143,8 @@ function AppContent() {
         .from('users')
         .update({
           name: payload.name || currentUser.name,
-          city: payload.city || currentUser.city
+          city: payload.city || currentUser.city,
+          current_organization_id: currentOrgId
         })
         .eq('id', currentUser.id);
 
@@ -212,6 +206,15 @@ function AppContent() {
     }
   };
 
+  const switchLeague = async (orgId) => {
+    if (!setActive) return;
+    try {
+      await setActive({ organization: orgId });
+    } catch (err) {
+      setError(err.message || 'Errore cambio lega');
+    }
+  };
+
   const enrichedGoals = goals.map((goal) => ({
     ...goal,
     user: users.find((item) => item.id === goal.user_id)?.name || 'Utente'
@@ -261,11 +264,6 @@ function AppContent() {
               <OrganizationSwitcher
                 afterCreateOrganizationUrl="/"
                 afterSelectOrganizationUrl="/"
-                appearance={{
-                  elements: {
-                    organizationSwitcherTrigger: 'org-trigger'
-                  }
-                }}
               />
 
               <div className="nav-icon">
@@ -359,6 +357,23 @@ function AppContent() {
               </div>
               <aside>
                 <Leaderboard users={leaderboard} />
+                <div className="panel" style={{ marginTop: '18px' }}>
+                  <h3>Leghe disponibili</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
+                    {userMemberships?.data?.map((membership) => {
+                      const org = membership.organization;
+                      return (
+                        <button
+                          key={org.id}
+                          className="ghost-btn"
+                          onClick={() => switchLeague(org.id)}
+                        >
+                          {org.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </aside>
             </main>
           )}

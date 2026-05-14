@@ -196,3 +196,35 @@ input[type='range'] { width: 100%; accent-color: var(--primary-dark); }
     grid-template-columns: 1fr;
   }
 }
+
+.league-btn,
+.ghost-btn {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 10px 14px;
+  background: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.league-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.league-card,
+.league-create-panel {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+@media (max-width: 900px) {
+  .league-overview {
+    grid-template-columns: 1fr;
+  }
+}
