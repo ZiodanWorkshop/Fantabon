@@ -2,10 +2,7 @@ import { useState } from 'react';
 
 export default function UserForm({ users = [], onUserCreated, onGoalCreated, disabled = false }) {
   const [activeTab, setActiveTab] = useState('profile');
-  const [profile, setProfile] = useState({
-    name: '',
-    city: ''
-  });
+  const [profile, setProfile] = useState({ name: '', city: '' });
   const [goal, setGoal] = useState({
     title: '',
     category: 'Altro',
@@ -13,6 +10,8 @@ export default function UserForm({ users = [], onUserCreated, onGoalCreated, dis
     points: ''
   });
   const [error, setError] = useState('');
+
+  const canCreateGoal = users.length > 0 && !disabled;
 
   const handleProfileSubmit = async (e) => {
     e.preventDefault();
@@ -23,14 +22,11 @@ export default function UserForm({ users = [], onUserCreated, onGoalCreated, dis
       return;
     }
 
-    if (!onUserCreated) return;
-
     try {
-      await onUserCreated({
+      await onUserCreated?.({
         name: profile.name.trim(),
         city: profile.city.trim()
       });
-
       setProfile({ name: '', city: '' });
       setActiveTab('goal');
     } catch (err) {
@@ -42,37 +38,30 @@ export default function UserForm({ users = [], onUserCreated, onGoalCreated, dis
     e.preventDefault();
     setError('');
 
+    if (!canCreateGoal) {
+      setError('Prima crea almeno un profilo.');
+      return;
+    }
+
     if (!goal.title.trim()) {
       setError('Inserisci un titolo obiettivo.');
       return;
     }
 
-    if (!goal.target || Number(goal.target) <= 0) {
-      setError('Inserisci un target valido.');
+    if (Number(goal.target) <= 0 || Number(goal.points) <= 0) {
+      setError('Target e punti devono essere maggiori di zero.');
       return;
     }
-
-    if (!goal.points || Number(goal.points) <= 0) {
-      setError('Inserisci punti validi.');
-      return;
-    }
-
-    if (!onGoalCreated) return;
 
     try {
-      await onGoalCreated({
+      await onGoalCreated?.({
         title: goal.title.trim(),
         category: goal.category.trim(),
         target: Number(goal.target),
         points: Number(goal.points)
       });
 
-      setGoal({
-        title: '',
-        category: 'Altro',
-        target: '',
-        points: ''
-      });
+      setGoal({ title: '', category: 'Altro', target: '', points: '' });
     } catch (err) {
       setError(err?.message || 'Errore creazione obiettivo');
     }
@@ -98,20 +87,19 @@ export default function UserForm({ users = [], onUserCreated, onGoalCreated, dis
         >
           Crea profilo
         </button>
+
         <button
           type="button"
           className={activeTab === 'goal' ? 'tab-btn active' : 'tab-btn'}
           onClick={() => setActiveTab('goal')}
-          disabled={disabled || users.length === 0}
+          disabled={disabled || !canCreateGoal}
         >
           Crea obiettivo
         </button>
       </div>
 
       {disabled ? (
-        <div className="muted-box">
-          Seleziona prima una lega attiva per abilitare i pulsanti.
-        </div>
+        <div className="muted-box">Seleziona prima una lega attiva.</div>
       ) : null}
 
       {activeTab === 'profile' ? (
@@ -151,7 +139,7 @@ export default function UserForm({ users = [], onUserCreated, onGoalCreated, dis
               value={goal.title}
               onChange={(e) => setGoal((g) => ({ ...g, title: e.target.value }))}
               placeholder="Es. Fare 5 km"
-              disabled={disabled || users.length === 0}
+              disabled={!canCreateGoal}
             />
           </label>
 
@@ -162,7 +150,7 @@ export default function UserForm({ users = [], onUserCreated, onGoalCreated, dis
               value={goal.category}
               onChange={(e) => setGoal((g) => ({ ...g, category: e.target.value }))}
               placeholder="Sport, Studio, Musica..."
-              disabled={disabled || users.length === 0}
+              disabled={!canCreateGoal}
             />
           </label>
 
@@ -175,7 +163,7 @@ export default function UserForm({ users = [], onUserCreated, onGoalCreated, dis
                 value={goal.target}
                 onChange={(e) => setGoal((g) => ({ ...g, target: e.target.value }))}
                 placeholder="10"
-                disabled={disabled || users.length === 0}
+                disabled={!canCreateGoal}
               />
             </label>
 
@@ -187,16 +175,16 @@ export default function UserForm({ users = [], onUserCreated, onGoalCreated, dis
                 value={goal.points}
                 onChange={(e) => setGoal((g) => ({ ...g, points: e.target.value }))}
                 placeholder="20"
-                disabled={disabled || users.length === 0}
+                disabled={!canCreateGoal}
               />
             </label>
           </div>
 
-          <button type="submit" className="primary-btn" disabled={disabled || users.length === 0}>
+          <button type="submit" className="primary-btn" disabled={!canCreateGoal}>
             Salva obiettivo
           </button>
 
-          {users.length === 0 ? (
+          {!canCreateGoal ? (
             <div className="muted-box">
               Prima crea almeno un profilo per poter aggiungere obiettivi.
             </div>
