@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Flame, SunMedium, Settings, Trophy } from 'lucide-react';
+import { Flame, SunMedium, Settings, Trophy, Users } from 'lucide-react';
 import {
   ClerkLoaded,
   ClerkLoading,
@@ -8,8 +8,10 @@ import {
   SignInButton,
   UserButton,
   OrganizationSwitcher,
+  CreateOrganization,
   useUser,
-  useOrganization
+  useOrganization,
+  useOrganizationList
 } from '@clerk/clerk-react';
 import StatCard from './components/StatCard';
 import Leaderboard from './components/Leaderboard';
@@ -24,13 +26,17 @@ export default function App() {
 function AppContent() {
   const { user, isSignedIn } = useUser();
   const { organization } = useOrganization();
+  const { isLoaded: orgListLoaded, userMemberships } = useOrganizationList({ memberships: true });
+
   const [users, setUsers] = useState([]);
   const [goals, setGoals] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showCreateLeague, setShowCreateLeague] = useState(false);
 
   const currentClerkId = user?.id;
   const currentOrgId = organization?.id;
+  const currentOrgName = organization?.name || 'Nessuna lega selezionata';
 
   const currentUser = useMemo(
     () => users.find((item) => item.clerk_id === currentClerkId),
@@ -243,23 +249,27 @@ function AppContent() {
         <nav className="navbar">
           <div className="navbar-left">
             <div className="navbar-title">Fantabon</div>
-            <span className="navbar-subtitle">
-              {currentOrgId ? 'Lega attiva' : 'Nessuna lega selezionata'}
-            </span>
+            <span className="navbar-subtitle">{currentOrgName}</span>
           </div>
 
           <div className="navbar-actions">
             <SignedIn>
-              <div className="org-switcher-wrap">
-                <OrganizationSwitcher
-                  afterCreateOrganizationUrl="/"
-                  afterSelectOrganizationUrl="/"
-                  appearance={{
-                    elements: {
-                      organizationSwitcherTrigger: 'org-trigger'
-                    }
-                  }}
-                />
+              <button className="league-btn" onClick={() => setShowCreateLeague(true)}>
+                + Crea lega
+              </button>
+
+              <OrganizationSwitcher
+                afterCreateOrganizationUrl="/"
+                afterSelectOrganizationUrl="/"
+                appearance={{
+                  elements: {
+                    organizationSwitcherTrigger: 'org-trigger'
+                  }
+                }}
+              />
+
+              <div className="nav-icon">
+                <Users size={18} />
               </div>
 
               <div className="nav-icon">
@@ -293,6 +303,39 @@ function AppContent() {
         </SignedOut>
 
         <SignedIn>
+          <section className="league-overview">
+            <div className="league-card">
+              <span className="eyebrow">Lega attiva</span>
+              <h2>{currentOrgName}</h2>
+              <p>
+                {orgListLoaded
+                  ? `${userMemberships?.data?.length || 0} leghe disponibili`
+                  : 'Caricamento leghe...'}
+              </p>
+            </div>
+
+            <div className="league-card">
+              <span className="eyebrow">Stato</span>
+              <h2>{currentOrgId ? 'Pronto' : 'Nessuna lega selezionata'}</h2>
+              <p>Usa il selettore in navbar per cambiare lega o crearne una nuova.</p>
+            </div>
+          </section>
+
+          {showCreateLeague ? (
+            <section className="panel league-create-panel">
+              <div className="panel-header">
+                <div>
+                  <span className="eyebrow">Nuova lega</span>
+                  <h2>Crea una lega privata</h2>
+                </div>
+                <button className="ghost-btn" onClick={() => setShowCreateLeague(false)}>
+                  Chiudi
+                </button>
+              </div>
+              <CreateOrganization routing="hash" />
+            </section>
+          ) : null}
+
           {error ? <div className="error-banner">{error}</div> : null}
 
           <section className="stats-grid">
