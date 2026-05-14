@@ -13,6 +13,7 @@ import {
   useOrganization,
   useOrganizationList
 } from '@clerk/clerk-react';
+
 import StatCard from './components/StatCard';
 import Leaderboard from './components/Leaderboard';
 import GoalList from './components/GoalList';
@@ -25,30 +26,28 @@ export default function App() {
 
 function AppContent() {
   const { user, isSignedIn } = useUser();
-  const { organization } = useOrganization();
-  const { isLoaded: orgListLoaded, userMemberships, setActive } = useOrganizationList({ memberships: true });
+  const { organization, isLoaded: orgLoaded } = useOrganization();
+  const { userMemberships, isLoaded: orgListLoaded, setActive } = useOrganizationList({ memberships: true });
 
   const [users, setUsers] = useState([]);
   const [goals, setGoals] = useState([]);
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [showCreateLeague, setShowCreateLeague] = useState(false);
 
-  const currentClerkId = user?.id;
-  const currentOrgId = organization?.id;
-  const currentOrgName = organization?.name || 'Nessuna lega selezionata';
-
+  const currentOrgId = organization?.id ?? null;
+  const currentOrgName = organization?.name ?? 'Nessuna lega attiva';
   const currentUser = useMemo(
-    () => users.find((item) => item.clerk_id === currentClerkId),
-    [users, currentClerkId]
+    () => users.find((u) => u.clerk_id === user?.id) || null,
+    [users, user?.id]
   );
 
   const stats = useMemo(
     () => ({
       totalUsers: users.length,
       totalGoals: goals.length,
-      totalPoints: users.reduce((sum, item) => sum + (item.points || 0), 0),
-      completedGoals: goals.filter((goal) => goal.completed).length
+      totalPoints: users.reduce((sum, u) => sum + (u.points || 0), 0),
+      completedGoals: goals.filter((g) => g.completed).length
     }),
     [users, goals]
   );
@@ -57,6 +56,33 @@ function AppContent() {
     () => [...users].sort((a, b) => (b.points || 0) - (a.points || 0)),
     [users]
   );
+
+  const loadData = async (orgId) => {
+    if (!orgId) return;
+    setLoading(true);
+    setError('');
+
+    const [usersRes, goalsRes] = await Promise.all([
+      supabase.from('users').select('*').eq('organization_id', orgId).order('points', { ascending: false }),
+      supabase.from('goals').select('*').eq('organization_id', orgId).order('created_at', { ascending: false })
+    ]);
+
+    if (usersRes.error) {
+      setError(usersRes.error.message);
+      setLoading(false);
+      return;
+    }
+
+    if (goalsRes.error) {
+      setError(goalsRes.error.message);
+      setLoading(false);
+      return;
+    }
+
+    setUsers(usersRes.data || []);
+    setGoals(goalsRes.data || []);
+    setLoading(false);
+  };
 
   const ensureUser = async () => {
     if (!isSignedIn || !user) return;
@@ -68,173 +94,118 @@ function AppContent() {
       points: 0
     };
 
-    const { error } = await supabase
+    const { error: upsertError } = await supabase
       .from('users')
       .upsert(payload, { onConflict: 'clerk_id' });
 
-    if (error) throw error;
+    if (upsertError) throw upsertError;
   };
 
-  const attachOrgToUser = async () => {
-    if (!currentUser || !currentOrgId) return;
+  const attachOrgToUser = async (orgId) => {
+    if (!currentUser || !orgId) return;
 
-    const { error } = await supabase
+    const { error: updateError } = await supabase
       .from('users')
-      .update({ organization_id: currentOrgId })
+      .update({ organization_id: orgId })
       .eq('id', currentUser.id);
 
-    if (error) throw error;
+    if (updateError) throw updateError;
   };
-
-  const loadData = async () => {
-    if (!isSignedIn || !currentOrgId) return;
-    try {
-      setLoading(true);
-
-      const usersQuery = await supabase
-        .from('users')
-        .select('*')
-        .eq('organization_id', currentOrgId)
-        .order('points', { ascending: false });
-
-      const goalsQuery = await supabase
-        .from('goals')
-        .select('*')
-        .eq('organization_id', currentOrgId)
-        .order('created_at', { ascending: false });
-
-      if (usersQuery.error) throw usersQuery.error;
-      if (goalsQuery.error) throw goalsQuery.error;
-
-      setUsers(usersQuery.data || []);
-      setGoals(goalsQuery.data || []);
-      setError('');
-    } catch (err) {
-      setError(err.message || 'Errore database');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const recomputePoints = async (userId, goalsList = goals) => {
-    const userGoals = goalsList.filter((goal) => goal.user_id === userId);
-    const total = userGoals.reduce((sum, goal) => {
-      return sum + Math.round((goal.progress / goal.target) * goal.points);
-    }, 0);
-
-    const updated = await supabase
-      .from('users')
-      .update({ points: total })
-      .eq('id', userId);
-
-    if (updated.error) throw updated.error;
-  };
-
-  useEffect(() => {
-    (async () => {
-      try {
-        if (!isSignedIn) return;
-        await ensureUser();
-      } catch (err) {
-        setError(err.message || 'Errore inizializzazione utente');
-      }
-    })();
-  }, [isSignedIn, currentClerkId]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        if (!isSignedIn || !currentOrgId) return;
-        await attachOrgToUser();
-        await loadData();
-      } catch (err) {
-        setError(err.message || 'Errore caricamento lega');
-      }
-    })();
-  }, [isSignedIn, currentOrgId, currentClerkId]);
 
   const createUser = async (payload) => {
     if (!currentUser || !currentOrgId) return;
 
-    try {
-      const updated = await supabase
-        .from('users')
-        .update({
-          name: payload.name || currentUser.name,
-          city: payload.city || currentUser.city,
-          organization_id: currentOrgId
-        })
-        .eq('id', currentUser.id);
+    const { error } = await supabase
+      .from('users')
+      .update({
+        name: payload.name || currentUser.name,
+        city: payload.city || currentUser.city,
+        organization_id: currentOrgId
+      })
+      .eq('id', currentUser.id);
 
-      if (updated.error) throw updated.error;
-      await loadData();
-    } catch (err) {
-      setError(err.message || 'Errore aggiornamento utente');
+    if (error) {
+      setError(error.message);
+      return;
     }
+
+    await loadData(currentOrgId);
   };
 
   const createGoal = async (payload) => {
     if (!currentUser || !currentOrgId) return;
 
-    try {
-      const inserted = await supabase.from('goals').insert({
-        user_id: currentUser.id,
-        organization_id: currentOrgId,
-        title: payload.title,
-        category: payload.category || 'Altro',
-        points: Number(payload.points),
-        progress: 0,
-        target: Number(payload.target),
-        completed: false
-      });
+    const { error } = await supabase.from('goals').insert({
+      user_id: currentUser.id,
+      organization_id: currentOrgId,
+      title: payload.title,
+      category: payload.category || 'Altro',
+      points: Number(payload.points),
+      progress: 0,
+      target: Number(payload.target),
+      completed: false
+    });
 
-      if (inserted.error) throw inserted.error;
-
-      await loadData();
-
-      const nextGoals = [...goals, ...(inserted.data || [])];
-      await recomputePoints(currentUser.id, nextGoals);
-      await loadData();
-    } catch (err) {
-      setError(err.message || 'Errore creazione obiettivo');
+    if (error) {
+      setError(error.message);
+      return;
     }
+
+    await loadData(currentOrgId);
   };
 
   const updateProgress = async (goalId, progress) => {
-    try {
-      const goal = goals.find((item) => item.id === goalId);
-      if (!goal) return;
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
 
-      const nextProgress = Math.min(progress, goal.target);
+    const nextProgress = Math.min(progress, goal.target);
 
-      const updated = await supabase
-        .from('goals')
-        .update({
-          progress: nextProgress,
-          completed: nextProgress >= goal.target
-        })
-        .eq('id', goalId);
+    const { error } = await supabase
+      .from('goals')
+      .update({
+        progress: nextProgress,
+        completed: nextProgress >= goal.target
+      })
+      .eq('id', goalId);
 
-      if (updated.error) throw updated.error;
-
-      await recomputePoints(goal.user_id);
-      await loadData();
-    } catch (err) {
-      setError(err.message || 'Errore aggiornamento progresso');
+    if (error) {
+      setError(error.message);
+      return;
     }
+
+    await loadData(currentOrgId);
   };
 
   const switchLeague = async (orgId) => {
-    try {
-      await setActive({ organization: orgId });
-    } catch (err) {
-      setError(err.message || 'Errore cambio lega');
-    }
+    const { error } = await setActive({ organization: orgId });
+    if (error) setError(error.message);
   };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        await ensureUser();
+      } catch (err) {
+        setError(err.message || 'Errore inizializzazione utente');
+      }
+    })();
+  }, [isSignedIn, user?.id]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!isSignedIn || !currentOrgId) return;
+        await attachOrgToUser(currentOrgId);
+        await loadData(currentOrgId);
+      } catch (err) {
+        setError(err.message || 'Errore caricamento dati');
+      }
+    })();
+  }, [isSignedIn, currentOrgId]);
 
   const enrichedGoals = goals.map((goal) => ({
     ...goal,
-    user: users.find((item) => item.id === goal.user_id)?.name || 'Utente'
+    user: users.find((u) => u.id === goal.user_id)?.name || 'Utente'
   }));
 
   return (
@@ -252,12 +223,8 @@ function AppContent() {
               </div>
               <span>fantabon</span>
             </div>
-            <h1>Obiettivi estivi, punti e classifica in una sola app.</h1>
-            <p>
-              {isSignedIn
-                ? `Bentornato ${user?.firstName || user?.username || 'utente'}!`
-                : 'Accedi con Google per iniziare.'}
-            </p>
+            <h1>Obiettivi, punti e classifica in una sola app.</h1>
+            <p>{isSignedIn ? `Bentornato ${user?.firstName || user?.username || 'utente'}!` : 'Accedi per iniziare.'}</p>
           </div>
 
           <div className="hero-badge">
@@ -278,7 +245,7 @@ function AppContent() {
                 + Crea lega
               </button>
 
-              <OrganizationSwitcher afterCreateOrganizationUrl="/" afterSelectOrganizationUrl="/" />
+              <OrganizationSwitcher afterSelectOrganizationUrl="/" afterCreateOrganizationUrl="/" />
 
               <div className="nav-icon">
                 <Users size={18} />
@@ -313,31 +280,15 @@ function AppContent() {
         </SignedOut>
 
         <SignedIn>
-          {!currentOrgId ? (
+          {!orgLoaded ? (
+            <div className="panel">Caricamento lega...</div>
+          ) : !currentOrgId ? (
             <section className="panel">
               <h2>Nessuna lega attiva</h2>
-              <p>Crea una lega o selezionala dalla navbar per iniziare.</p>
+              <p>Seleziona una lega dal selettore oppure creane una nuova.</p>
             </section>
           ) : (
             <>
-              <section className="league-overview">
-                <div className="league-card">
-                  <span className="eyebrow">Lega attiva</span>
-                  <h2>{currentOrgName}</h2>
-                  <p>
-                    {orgListLoaded
-                      ? `${userMemberships?.data?.length || 0} leghe disponibili`
-                      : 'Caricamento leghe...'}
-                  </p>
-                </div>
-
-                <div className="league-card">
-                  <span className="eyebrow">Stato</span>
-                  <h2>Pronto</h2>
-                  <p>Usa il selettore in navbar per cambiare lega o crearne una nuova.</p>
-                </div>
-              </section>
-
               {showCreateLeague ? (
                 <section className="panel league-create-panel">
                   <div className="panel-header">
@@ -355,6 +306,20 @@ function AppContent() {
 
               {error ? <div className="error-banner">{error}</div> : null}
 
+              <section className="league-overview">
+                <div className="league-card">
+                  <span className="eyebrow">Lega attiva</span>
+                  <h2>{currentOrgName}</h2>
+                  <p>{orgListLoaded ? `${userMemberships?.data?.length || 0} leghe disponibili` : 'Caricamento leghe...'}</p>
+                </div>
+
+                <div className="league-card">
+                  <span className="eyebrow">Stato</span>
+                  <h2>Pronto</h2>
+                  <p>Usa il selettore in navbar per cambiare lega.</p>
+                </div>
+              </section>
+
               <section className="stats-grid">
                 <StatCard label="Utenti" value={stats.totalUsers} hint="Partecipanti attivi" />
                 <StatCard label="Obiettivi" value={stats.totalGoals} hint="Missioni registrate" />
@@ -367,30 +332,24 @@ function AppContent() {
               ) : (
                 <main className="dashboard-grid">
                   <div className="main-column">
-                    <UserForm
-                      users={users}
-                      onUserCreated={createUser}
-                      onGoalCreated={createGoal}
-                    />
+                    <UserForm users={users} onUserCreated={createUser} onGoalCreated={createGoal} />
                     <GoalList goals={enrichedGoals} onUpdate={updateProgress} />
                   </div>
+
                   <aside>
                     <Leaderboard users={leaderboard} />
                     <div className="panel" style={{ marginTop: '18px' }}>
                       <h3>Leghe disponibili</h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
-                        {userMemberships?.data?.map((membership) => {
-                          const org = membership.organization;
-                          return (
-                            <button
-                              key={org.id}
-                              className="ghost-btn"
-                              onClick={() => switchLeague(org.id)}
-                            >
-                              {org.name}
-                            </button>
-                          );
-                        })}
+                        {userMemberships?.data?.map((membership) => (
+                          <button
+                            key={membership.organization.id}
+                            className="ghost-btn"
+                            onClick={() => switchLeague(membership.organization.id)}
+                          >
+                            {membership.organization.name}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </aside>
