@@ -38,8 +38,10 @@ export default function App() {
       setLoading(true);
       const usersQuery = await supabase.from('users').select('*').order('points', { ascending: false });
       const goalsQuery = await supabase.from('goals').select('*').order('created_at', { ascending: false });
+
       if (usersQuery.error) throw usersQuery.error;
       if (goalsQuery.error) throw goalsQuery.error;
+
       setUsers(usersQuery.data || []);
       setGoals(goalsQuery.data || []);
       setError('');
@@ -52,19 +54,41 @@ export default function App() {
 
   const ensureUser = async () => {
     if (!isSignedIn || !user) return;
+
     const payload = {
       clerk_id: user.id,
       name: user.fullName || user.firstName || user.username || 'Utente',
       city: user.primaryEmailAddress?.emailAddress || 'Non specificata'
     };
 
-    const existing = await supabase.from('users').select('*').eq('clerk_id', user.id).maybeSingle();
-    if (existing.error && existing.error.code !== 'PGRST116') throw existing.error;
+    const existing = await supabase
+      .from('users')
+      .select('*')
+      .eq('clerk_id', user.id)
+      .maybeSingle();
+
+    if (existing.error && existing.error.code !== 'PGRST116') {
+      throw existing.error;
+    }
 
     if (!existing.data) {
       const inserted = await supabase.from('users').insert(payload).select().single();
       if (inserted.error) throw inserted.error;
     }
+  };
+
+  const recomputePoints = async (userId, goalsList = goals) => {
+    const userGoals = goalsList.filter((goal) => goal.user_id === userId);
+    const total = userGoals.reduce((sum, goal) => {
+      return sum + Math.round((goal.progress / goal.target) * goal.points);
+    }, 0);
+
+    const updated = await supabase
+      .from('users')
+      .update({ points: total })
+      .eq('id', userId);
+
+    if (updated.error) throw updated.error;
   };
 
   useEffect(() => {
@@ -81,11 +105,16 @@ export default function App() {
 
   const createUser = async (payload) => {
     if (!currentUser) return;
+
     try {
       const updated = await supabase
         .from('users')
-        .update({ name: payload.name || currentUser.name, city: payload.city || currentUser.city })
+        .update({
+          name: payload.name || currentUser.name,
+          city: payload.city || currentUser.city
+        })
         .eq('id', currentUser.id);
+
       if (updated.error) throw updated.error;
       await loadData();
     } catch (err) {
@@ -93,15 +122,9 @@ export default function App() {
     }
   };
 
-  const recomputePoints = async (userId) => {
-    const userGoals = goals.filter((goal) => goal.user_id === userId);
-    const total = userGoals.reduce((sum, goal) => sum + Math.round((goal.progress / goal.target) * goal.points), 0);
-    const updated = await supabase.from('users').update({ points: total }).eq('id', userId);
-    if (updated.error) throw updated.error;
-  };
-
   const createGoal = async (payload) => {
     if (!currentUser) return;
+
     try {
       const inserted = await supabase.from('goals').insert({
         user_id: currentUser.id,
@@ -112,8 +135,12 @@ export default function App() {
         target: Number(payload.target),
         completed: false
       });
+
       if (inserted.error) throw inserted.error;
-      await recomputePoints(currentUser.id);
+      await loadData();
+
+      const refreshedGoals = [...goals, ...(inserted.data || [])];
+      await recomputePoints(currentUser.id, refreshedGoals);
       await loadData();
     } catch (err) {
       setError(err.message || 'Errore creazione obiettivo');
@@ -124,12 +151,19 @@ export default function App() {
     try {
       const goal = goals.find((item) => item.id === goalId);
       if (!goal) return;
+
       const nextProgress = Math.min(progress, goal.target);
-      const updated = await supabase.from('goals').update({
-        progress: nextProgress,
-        completed: nextProgress >= goal.target
-      }).eq('id', goalId);
+
+      const updated = await supabase
+        .from('goals')
+        .update({
+          progress: nextProgress,
+          completed: nextProgress >= goal.target
+        })
+        .eq('id', goalId);
+
       if (updated.error) throw updated.error;
+
       await recomputePoints(goal.user_id);
       await loadData();
     } catch (err) {
@@ -147,12 +181,19 @@ export default function App() {
       <header className="hero">
         <div>
           <div className="brand">
-            <div className="brand-mark" aria-hidden="true"><Flame size={18} /></div>
+            <div className="brand-mark" aria-hidden="true">
+              <Flame size={18} />
+            </div>
             <span>fantabon</span>
           </div>
           <h1>Obiettivi estivi, punti e classifica in una sola app.</h1>
-          <p>{isSignedIn ? `Bentornato ${user?.firstName || user?.username || 'utente'}!` : 'Accedi con Google per iniziare.'}</p>
+          <p>
+            {isSignedIn
+              ? `Bentornato ${user?.firstName || user?.username || 'utente'}!`
+              : 'Accedi con Google per iniziare.'}
+          </p>
         </div>
+
         <div className="hero-badge">
           <SunMedium size={18} />
           <span>Summer tracker</span>
@@ -189,7 +230,11 @@ export default function App() {
         ) : (
           <main className="dashboard-grid">
             <div className="main-column">
-              <UserForm users={currentUser ? [currentUser] : []} onUserCreated={createUser} onGoalCreated={createGoal} />
+              <UserForm
+                users={currentUser ? [currentUser] : []}
+                onUserCreated={createUser}
+                onGoalCreated={createGoal}
+              />
               <GoalList goals={enrichedGoals} onUpdate={updateProgress} />
             </div>
             <aside>
