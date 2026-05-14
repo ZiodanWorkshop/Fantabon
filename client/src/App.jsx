@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Flame, SunMedium } from 'lucide-react';
-import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from '@clerk/clerk-react';
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  UserButton,
+  useUser
+} from '@clerk/clerk-react';
 import StatCard from './components/StatCard';
 import Leaderboard from './components/Leaderboard';
 import GoalList from './components/GoalList';
@@ -8,6 +14,10 @@ import UserForm from './components/UserForm';
 import { supabase } from './lib/supabase';
 
 export default function App() {
+  return <AppContent />;
+}
+
+function AppContent() {
   const { user, isSignedIn } = useUser();
   const [users, setUsers] = useState([]);
   const [goals, setGoals] = useState([]);
@@ -15,17 +25,21 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   const currentClerkId = user?.id;
+
   const currentUser = useMemo(
     () => users.find((item) => item.clerk_id === currentClerkId),
     [users, currentClerkId]
   );
 
-  const stats = useMemo(() => ({
-    totalUsers: users.length,
-    totalGoals: goals.length,
-    totalPoints: users.reduce((sum, item) => sum + (item.points || 0), 0),
-    completedGoals: goals.filter((goal) => goal.completed).length
-  }), [users, goals]);
+  const stats = useMemo(
+    () => ({
+      totalUsers: users.length,
+      totalGoals: goals.length,
+      totalPoints: users.reduce((sum, item) => sum + (item.points || 0), 0),
+      completedGoals: goals.filter((goal) => goal.completed).length
+    }),
+    [users, goals]
+  );
 
   const leaderboard = useMemo(
     () => [...users].sort((a, b) => (b.points || 0) - (a.points || 0)),
@@ -36,8 +50,16 @@ export default function App() {
     if (!isSignedIn || !currentClerkId) return;
     try {
       setLoading(true);
-      const usersQuery = await supabase.from('users').select('*').order('points', { ascending: false });
-      const goalsQuery = await supabase.from('goals').select('*').order('created_at', { ascending: false });
+
+      const usersQuery = await supabase
+        .from('users')
+        .select('*')
+        .order('points', { ascending: false });
+
+      const goalsQuery = await supabase
+        .from('goals')
+        .select('*')
+        .order('created_at', { ascending: false });
 
       if (usersQuery.error) throw usersQuery.error;
       if (goalsQuery.error) throw goalsQuery.error;
@@ -79,6 +101,7 @@ export default function App() {
 
   const recomputePoints = async (userId, goalsList = goals) => {
     const userGoals = goalsList.filter((goal) => goal.user_id === userId);
+
     const total = userGoals.reduce((sum, goal) => {
       return sum + Math.round((goal.progress / goal.target) * goal.points);
     }, 0);
@@ -137,10 +160,15 @@ export default function App() {
       });
 
       if (inserted.error) throw inserted.error;
+
       await loadData();
 
-      const refreshedGoals = [...goals, ...(inserted.data || [])];
-      await recomputePoints(currentUser.id, refreshedGoals);
+      const nextGoals = [
+        ...goals,
+        ...(inserted.data || [])
+      ];
+
+      await recomputePoints(currentUser.id, nextGoals);
       await loadData();
     } catch (err) {
       setError(err.message || 'Errore creazione obiettivo');
